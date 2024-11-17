@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
 use core::panic;
-use std::{thread::sleep_ms, time::Duration};
+use std::{os, thread::sleep_ms, time::Duration};
 
 use crate::cmd;
 
@@ -8,15 +8,37 @@ pub struct EDIO {
     port: Option<Box<dyn serialport::SerialPort>>,
 }
 
+static IDENTIFIER: &str = "EverDrive N8";
+
 impl EDIO {
     pub fn new() -> Self {
         Self {
             port: Some(EDIO::open_port()),
         }
     }
+
+    fn seek() -> Option<String> {
+        for port in serialport::available_ports().expect("No serial ports available") {
+            match port.port_type {
+                serialport::SerialPortType::UsbPort(port_type) => {
+                    if cfg!(windows) {
+                        // on Windows, names aren't provided by the library yet
+                        return Some(port.port_name);
+                    }
+
+                    if port_type.product.unwrap() == IDENTIFIER {
+                        return Some(port.port_name);
+                    }
+                }
+                _ => {} // Ignore Bluetooth, etc.
+            }
+        }
+        panic!("Failed to find a suitable port");
+    }
+
     #[inline]
     fn open_port() -> Box<dyn serialport::SerialPort> {
-        serialport::new("COM3", 115_200)
+        serialport::new("/dev/tty.usbmodem00000000001A1", 115_200)
             .timeout(Duration::from_millis(300))
             .open()
             .expect("Failed to open port")
@@ -102,6 +124,8 @@ impl EDIO {
         let mut len = buff.len();
         let mut offset = 0;
 
+        let pb = indicatif::ProgressBar::new(len.try_into().unwrap());
+
         while len > 0 {
             let resp = self.rx8();
             if resp != 0 {
@@ -113,12 +137,14 @@ impl EDIO {
                 block = len;
             }
 
-            println!("Sending buffer[{}..{}]", offset, offset + block);
+            pb.set_position(offset.try_into().unwrap());
 
             self.tx_data(&buff[offset..(offset + block)]);
             len -= block;
             offset += block;
         }
+
+        pb.finish_and_clear();
     }
 
     fn tx_cmd(&mut self, cmd_code: u8) {
@@ -158,7 +184,7 @@ impl EDIO {
         }
     }
 
-    #[deprecated]
+    // Populates size of dir
     pub fn dir_load(&mut self, path: &str, sorted: u8) {
         self.tx_cmd(cmd::CMD_F_DIR_LD);
         self.tx8(sorted);
