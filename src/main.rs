@@ -23,7 +23,7 @@ const FAT_OPEN_APPEND: u8 = 0x30;
 fn main() {
     let matches = command!()
         .subcommands([
-            Command::new("run"),
+            Command::new("run").arg(arg!(<PATH>)),
             Command::new("ls").arg(arg!([PATH]).default_value("")),
             Command::new("push")
                 .arg(arg!(<SRC> "Source file"))
@@ -48,7 +48,29 @@ fn main() {
 
     match matches.subcommand() {
         Some(("run", sub_matches)) => {
-            edio.sel_game("pong.nes");
+            let path = sub_matches
+                .get_one::<String>("PATH")
+                .expect("PATH Required");
+
+            let metadata = std::fs::metadata(path).expect("unable to read rom metadata");
+            let mut buffer = vec![0; metadata.len() as usize];
+            let mut file = File::open(path).expect("Failed to open ROM");
+            file.read(&mut buffer).expect("buffer overflow");
+
+            let file_name = format!(
+                "/{}",
+                std::path::Path::new(path)
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            );
+
+            edio.file_open(file_name.as_str(), FAT_CREATE_ALWAYS | FAT_WRITE);
+            edio.file_write(buffer.as_slice());
+            edio.file_close();
+
+            edio.sel_game(file_name.as_str());
             edio.run_game();
         }
         Some(("ls", sub_matches)) => {

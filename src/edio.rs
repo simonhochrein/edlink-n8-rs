@@ -358,8 +358,16 @@ impl EDIO {
     }
 
     pub fn fifo_cmd(&mut self, cmd: u8) {
-        let buff = [b'0', cmd];
+        let buff = [b'*', cmd];
         self.fifo_wr(&buff);
+    }
+
+    fn fifo_tx_str(&mut self, path: &str) {
+        let mut len = vec![];
+        len.write_u16::<LittleEndian>(path.len() as u16)
+            .expect("Failed to write length");
+        self.fifo_wr(&len);
+        self.fifo_wr(path.as_bytes());
     }
 
     pub fn run_game(&mut self) {
@@ -368,7 +376,7 @@ impl EDIO {
 
     pub fn sel_game(&mut self, path: &str) -> u16 {
         self.fifo_cmd(b'n');
-        self.tx_str(path);
+        self.fifo_tx_str(path);
         let response = self.rx8();
         if response != 0 {
             panic!("Failed to select game");
