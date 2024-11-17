@@ -1,6 +1,5 @@
-use byteorder::{ByteOrder, LittleEndian, ReadBytesExt, WriteBytesExt};
-use core::panic;
-use std::{os, thread::sleep_ms, time::Duration};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::{thread::sleep, time::Duration};
 
 use crate::cmd;
 
@@ -9,7 +8,9 @@ pub struct EDIO {
 }
 
 static IDENTIFIER: &str = "EverDrive N8";
+const ADDR_FIFO: u32 = 0x1810000;
 
+#[allow(dead_code)]
 impl EDIO {
     pub fn new() -> Self {
         Self {
@@ -84,6 +85,15 @@ impl EDIO {
         self.get_port()
             .write_u32::<LittleEndian>(data)
             .expect("Failed to write u32");
+    }
+
+    fn rx_data(&mut self, len: u32) -> Vec<u8> {
+        let mut data = vec![0; len as usize].into_boxed_slice();
+        self.get_port()
+            .read_exact(data.as_mut())
+            .expect("Failed to read data");
+
+        data.to_vec()
     }
 
     fn rx_string(&mut self) -> String {
@@ -205,18 +215,58 @@ impl EDIO {
         self.rx_file_info()
     }
 
+    pub fn file_read(&mut self, length: u32) -> Vec<u8> {
+        let mut len = length;
+        let mut offset = 0;
+
+        self.tx_cmd(cmd::CMD_F_FRD);
+        self.tx32(len);
+
+        let mut buff = vec![];
+
+        while len > 0 {
+            let mut block = 4096;
+
+            if block > len {
+                block = len;
+            }
+            let response = self.rx8();
+            if response != 0 {
+                panic!("File read error: {}", response);
+            }
+
+            buff.append(&mut self.rx_data(block));
+
+            offset += block;
+            len -= block;
+        }
+
+        return buff;
+    }
+
     fn rx_file_info(&mut self) -> FileInfo {
         let size = self.rx32();
         let date = self.rx16();
         let time = self.rx16();
         let attrib = self.rx8();
 
+        let day = date & 31;
+        let month = (date >> 5) & 15;
+        let year = (date >> 9) + 1980;
+        let hour = time >> 11;
+        let min = (time >> 5) & 0x3F;
+        let sec = (time & 0x1F) * 2;
+
+        let datetime = chrono::NaiveDate::from_ymd_opt(year.into(), month.into(), day.into())
+            .expect("Failed to create date")
+            .and_hms_opt(hour.into(), min.into(), sec.into())
+            .expect("Failed to create time");
+
         let name = self.rx_string();
 
         FileInfo {
             size,
-            date,
-            time,
+            date: datetime,
             attrib,
             name,
         }
@@ -240,9 +290,9 @@ impl EDIO {
     }
 
     fn boot_wait(&mut self) {
-        sleep_ms(1000);
+        sleep(Duration::from_millis(1000));
         self.port = None;
-        sleep_ms(1000);
+        sleep(Duration::from_millis(1000));
         self.port = Some(EDIO::open_port());
 
         self.connect();
@@ -280,13 +330,63 @@ impl EDIO {
         self.tx8(0);
         self.tx_data(buff);
     }
+
+    pub fn rtc_get(&mut self) {
+        self.tx_cmd(cmd::CMD_RTC_GET);
+        let buff = [
+            self.rx8(),
+            self.rx8(),
+            self.rx8(),
+            self.rx8(),
+            self.rx8(),
+            self.rx8(),
+        ];
+
+        println!(
+            "{}/{}/{} {:02}:{:02}:{:02}",
+            hex2dec(buff[0]) as u16 + 2000,
+            hex2dec(buff[1]),
+            hex2dec(buff[2]),
+            hex2dec(buff[3]),
+            hex2dec(buff[4]),
+            hex2dec(buff[5]),
+        );
+    }
+
+    fn fifo_wr(&mut self, buff: &[u8]) {
+        self.mem_wr(ADDR_FIFO, buff);
+    }
+
+    pub fn fifo_cmd(&mut self, cmd: u8) {
+        let buff = [b'0', cmd];
+        self.fifo_wr(&buff);
+    }
+
+    pub fn run_game(&mut self) {
+        self.fifo_cmd(b's');
+    }
+
+    pub fn sel_game(&mut self, path: &str) -> u16 {
+        self.fifo_cmd(b'n');
+        self.tx_str(path);
+        let response = self.rx8();
+        if response != 0 {
+            panic!("Failed to select game");
+        }
+
+        self.rx16() // Mapper
+    }
+}
+
+#[inline]
+fn hex2dec(val: u8) -> u8 {
+    ((val >> 4) & 0xF) * 10 + (val & 0xF)
 }
 
 #[derive(Debug)]
 pub struct FileInfo {
     pub size: u32,
-    pub date: u16,
-    pub time: u16,
+    pub date: chrono::NaiveDateTime,
     pub attrib: u8,
     pub name: String,
 }

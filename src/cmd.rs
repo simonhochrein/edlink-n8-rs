@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub const CMD_STATUS: u8 = 0x10;
 pub const CMD_GET_MODE: u8 = 0x11;
 pub const CMD_HARD_RESET: u8 = 0x12;

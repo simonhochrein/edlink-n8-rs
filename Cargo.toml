@@ -8,3 +8,7 @@ serialport="4.6.0"
 byteorder="1.5.0"
 clap = {version = "4.5.21", features=['cargo']}
 indicatif = "0.17.9"
+chrono = "0.4.38"
+anstream = "0.6.18"
+anstyle = "1.0.10"
+term_grid = "0.2.0"
