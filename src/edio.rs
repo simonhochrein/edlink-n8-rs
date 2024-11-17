@@ -17,17 +17,17 @@ impl EDIO {
         }
     }
 
-    fn seek() -> Option<String> {
+    fn seek() -> String {
         for port in serialport::available_ports().expect("No serial ports available") {
             match port.port_type {
                 serialport::SerialPortType::UsbPort(port_type) => {
                     if cfg!(windows) {
                         // on Windows, names aren't provided by the library yet
-                        return Some(port.port_name);
+                        return port.port_name;
                     }
 
                     if port_type.product.unwrap() == IDENTIFIER {
-                        return Some(port.port_name);
+                        return port.port_name;
                     }
                 }
                 _ => {} // Ignore Bluetooth, etc.
@@ -38,7 +38,7 @@ impl EDIO {
 
     #[inline]
     fn open_port() -> Box<dyn serialport::SerialPort> {
-        serialport::new("/dev/tty.usbmodem00000000001A1", 115_200)
+        serialport::new(EDIO::seek(), 115_200)
             .timeout(Duration::from_millis(300))
             .open()
             .expect("Failed to open port")
@@ -284,9 +284,9 @@ impl EDIO {
 
 #[derive(Debug)]
 pub struct FileInfo {
-    size: u32,
-    date: u16,
-    time: u16,
-    attrib: u8,
-    name: String,
+    pub size: u32,
+    pub date: u16,
+    pub time: u16,
+    pub attrib: u8,
+    pub name: String,
 }
