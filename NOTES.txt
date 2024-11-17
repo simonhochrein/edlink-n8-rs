@@ -1,0 +1,7 @@
+FAT Attribute bits:
+0 - Read only
+1 - Hidden
+2 - System
+3 - Volume ID
+4 - Directory
+5 - Archive
